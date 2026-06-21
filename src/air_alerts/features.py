@@ -17,7 +17,7 @@ def add_historical_features(frame: pd.DataFrame) -> pd.DataFrame:
     """Return a copy of historical alerts with analysis-ready columns.
 
     Source timestamps are UTC, which is the safest storage format. Daily, weekly,
-    and holiday analysis must use Kyiv local time because Ukrainian holidays and
+    and holiday analysis must use Kyiv local time as Ukrainian holidays and
     important dates are local calendar dates, not UTC dates.
     """
     _require_columns(frame, {"started_at"})
