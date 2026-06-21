@@ -4,3 +4,4 @@ plotly>=5.22
 python-dotenv>=1.0
 pytest>=8.2
 holidays>=0.58
+requests>=2.32
