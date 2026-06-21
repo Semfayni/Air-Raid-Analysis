@@ -1,0 +1,3 @@
+# Reflection
+
+The first version was a scaffold, and several practical issues only appeared once tests and Streamlit were exercised. Streamlit generated duplicate page URLs because every page function was named `render`, so I fixed routing with explicit `url_path` values. A pandas datetime test was too brittle because it expected nanosecond precision, so I changed it to verify timezone-aware UTC behavior. The anomaly backend lost `region` after `groupby.apply`, which led to an explicit per-region scoring loop. The map layer also needed schema-tolerant missing-value normalization. The final version is better because it is tested, clearer, and avoids claiming holiday causation.
