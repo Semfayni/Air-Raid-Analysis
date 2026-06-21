@@ -24,10 +24,10 @@ STATUS_LABELS = {
     "unknown": "Unknown",
 }
 STATUS_COLOR_MAP = {
-    "active": "#d7263d",
-    "partial": "#f08a24",
-    "no_alert": "#e9e4d8",
-    "unknown": "#d7dce2",
+    "active": "#ef4444",
+    "partial": "#f59e0b",
+    "no_alert": "#64748b",
+    "unknown": "#334155",
 }
 STATUS_RANK = {
     "unknown": 0,
@@ -231,10 +231,17 @@ def build_live_status_choropleth(map_result: MapDataResult) -> go.Figure:
     )
     figure.update_geos(fitbounds="locations", visible=False)
     figure.update_layout(
+        height=650,
         margin={"r": 0, "t": 0, "l": 0, "b": 0},
         legend_title_text="Status",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="#07111f",
+        plot_bgcolor="#07111f",
+        font={"color": "#e5edf7"},
+        legend={
+            "bgcolor": "rgba(13, 27, 46, 0.82)",
+            "bordercolor": "rgba(103, 232, 249, 0.16)",
+            "borderwidth": 1,
+        },
     )
     return figure
 

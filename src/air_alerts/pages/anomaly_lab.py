@@ -21,6 +21,7 @@ from air_alerts.pages.data_cache import (
 )
 from air_alerts.ui import (
     ACCENT_COLOR,
+    SECONDARY_COLOR,
     PRIMARY_COLOR,
     compact_note,
     page_header,
@@ -58,8 +59,7 @@ def render() -> None:
         "Inspect unusual daily regional activity with nearby holiday and important-date context.",
     )
     compact_note(
-        "Holiday proximity is exploratory context and not evidence of a direct relationship. "
-        "Use this page to inspect patterns, not as an operational warning source.",
+        "Holiday proximity is context, not evidence of a direct relationship.",
         kind="warning",
     )
 
@@ -103,6 +103,7 @@ def render() -> None:
             sources = sorted(str(source) for source in featured["source"].dropna().unique())
             default_sources = ["official"] if "official" in sources else sources
             selected_sources = st.multiselect("Source", sources, default=default_sources)
+            st.caption("Source choice changes historical coverage; official is the default.")
 
         z_threshold = st.slider("Z score threshold", 1.0, 5.0, 2.0, 0.1)
         rolling_window = st.slider("Rolling window days", 14, 120, 30, 1)
@@ -178,7 +179,7 @@ def render() -> None:
                     "anomaly_count": "Anomaly days",
                 },
                 title="Inside vs Outside Holiday Window",
-                color_discrete_sequence=[PRIMARY_COLOR],
+                color_discrete_sequence=[SECONDARY_COLOR],
             )
             st.plotly_chart(style_figure(figure, height=360), width="stretch")
 
@@ -220,7 +221,7 @@ def _activity_figure(scored: pd.DataFrame) -> go.Figure:
         color="region",
         title="Daily Episode Starts with Anomaly Markers",
         labels={"oblast_episode_count": "Episode starts", "date": "Date", "region": "Region"},
-        color_discrete_sequence=[PRIMARY_COLOR, "#6f4e37", "#8a3ffc", "#2f855a"],
+        color_discrete_sequence=[PRIMARY_COLOR, SECONDARY_COLOR, "#38bdf8", "#a3e635"],
     )
     anomaly_rows = scored[scored["is_anomaly"]]
     if not anomaly_rows.empty:

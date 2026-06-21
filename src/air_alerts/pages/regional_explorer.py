@@ -15,7 +15,7 @@ from air_alerts.pages.data_cache import (
     load_featured_historical_data,
     load_historical_metric_tables,
 )
-from air_alerts.ui import PRIMARY_COLOR, page_header, section, style_figure
+from air_alerts.ui import PRIMARY_COLOR, SECONDARY_COLOR, page_header, section, style_figure
 
 
 @st.cache_data(show_spinner="Computing selected oblast metrics...")
@@ -30,7 +30,7 @@ def render() -> None:
     """Render the regional historical explorer."""
     page_header(
         "Regional Explorer",
-        "Filter historical alerts by region, date range, and source.",
+        "Inspect merged oblast episodes, affected hours, and temporal shape for one region.",
     )
 
     try:
@@ -75,6 +75,7 @@ def render() -> None:
             sources = sorted(source for source in featured["source"].dropna().unique())
             default_sources = ["official"] if "official" in sources else sources
             selected_sources = st.multiselect("Source", sources, default=default_sources)
+            st.caption("Source choice changes historical coverage; official is the default.")
 
     metric_base = filter_featured_alerts(
         featured,
@@ -129,7 +130,7 @@ def render() -> None:
             y="affected_oblast_hours",
             title="Daily Affected Hours",
             labels={"affected_oblast_hours": "Affected oblast hours", "date": "Date"},
-            color_discrete_sequence=["#8a3ffc"],
+            color_discrete_sequence=[SECONDARY_COLOR],
         )
         st.plotly_chart(style_figure(duration_figure, height=340), width="stretch")
 
@@ -153,7 +154,7 @@ def render() -> None:
             title="Hour by Weekday",
             labels={"x": "Hour", "y": "Weekday", "color": "Episode starts"},
             aspect="auto",
-            color_continuous_scale="Reds",
+            color_continuous_scale=["#0d1b2e", "#164e63", PRIMARY_COLOR, SECONDARY_COLOR],
         )
         st.plotly_chart(style_figure(heatmap_figure, height=430), width="stretch")
 

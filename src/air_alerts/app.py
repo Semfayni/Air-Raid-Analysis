@@ -5,7 +5,6 @@ from __future__ import annotations
 import streamlit as st
 
 from air_alerts.pages import (
-    ai_process,
     anomaly_lab,
     live_map,
     overview,
@@ -22,18 +21,15 @@ def main() -> None:
     )
 
     pages = {
-        "Dashboard": [
+        "Analysis": [
+            st.Page(anomaly_lab.render, title="Anomaly Lab", url_path="anomaly-lab"),
             st.Page(overview.render, title="Overview", url_path="overview"),
-            st.Page(live_map.render, title="Live Map", url_path="live-map"),
             st.Page(
                 regional_explorer.render,
                 title="Regional Explorer",
                 url_path="regional-explorer",
             ),
-            st.Page(anomaly_lab.render, title="Anomaly Lab", url_path="anomaly-lab"),
-        ],
-        "Project": [
-            st.Page(ai_process.render, title="AI Process", url_path="ai-process"),
+            st.Page(live_map.render, title="Live Map", url_path="live-map"),
         ],
     }
 

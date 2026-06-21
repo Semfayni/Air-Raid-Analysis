@@ -6,8 +6,10 @@ import pandas as pd
 import pytest
 
 from air_alerts.metrics import (
+    audit_metric_pipeline_by_year,
     daily_oblast_metrics,
     debug_national_day_metrics,
+    debug_region_yearly_counts,
     hourly_weekday_episode_matrix,
     merge_overlapping_intervals,
     national_daily_metrics,
@@ -459,3 +461,151 @@ def test_national_daily_hours_do_not_exceed_24_times_regions_present() -> None:
 
     for row in national.itertuples(index=False):
         assert row.affected_oblast_hours <= 24 * region_counts.loc[row.date]
+
+
+def test_audit_metric_pipeline_by_year_preserves_expected_stage_counts() -> None:
+    duplicate_row = {
+        "oblast": "Kyivska oblast",
+        "source": "official",
+        "level": "oblast",
+        "started_at": pd.Timestamp("2023-01-01 08:00:00+00:00"),
+        "finished_at": pd.Timestamp("2023-01-01 09:00:00+00:00"),
+    }
+    frame = _frame(
+        [
+            duplicate_row,
+            duplicate_row.copy(),
+            {
+                "oblast": "Kyivska oblast",
+                "source": "official",
+                "level": "raion",
+                "started_at": pd.Timestamp("2024-01-01 08:00:00+00:00"),
+                "finished_at": pd.Timestamp("2024-01-01 10:00:00+00:00"),
+            },
+            {
+                "oblast": "Kyivska oblast",
+                "source": "official",
+                "level": "hromada",
+                "started_at": pd.Timestamp("2024-01-01 09:00:00+00:00"),
+                "finished_at": pd.Timestamp("2024-01-01 11:00:00+00:00"),
+            },
+            {
+                "oblast": "Kyivska oblast",
+                "source": "official",
+                "level": "oblast",
+                "started_at": pd.Timestamp("2025-01-01 08:00:00+00:00"),
+                "finished_at": pd.Timestamp("2025-01-01 09:00:00+00:00"),
+            },
+            {
+                "oblast": "Kyivska oblast",
+                "source": "volunteer",
+                "level": "oblast",
+                "started_at": pd.Timestamp("2025-01-01 10:00:00+00:00"),
+                "finished_at": pd.Timestamp("2025-01-01 11:00:00+00:00"),
+            },
+        ]
+    )
+
+    audit = audit_metric_pipeline_by_year(frame)
+    by_year = audit.set_index("year")
+
+    assert list(by_year.index) == [2023, 2024, 2025]
+    assert by_year.loc[2023, "raw_loaded_rows"] == 2
+    assert by_year.loc[2023, "duplicate_raw_records_count"] == 1
+    assert by_year.loc[2023, "deduplicated_rows"] == 1
+    assert by_year.loc[2024, "source_filtered_rows"] == 2
+    assert by_year.loc[2024, "prepared_metric_intervals"] == 2
+    assert by_year.loc[2024, "merged_intervals"] == 1
+    assert by_year.loc[2024, "oblast_episode_count"] == 1
+    assert by_year.loc[2025, "raw_loaded_rows"] == 2
+    assert by_year.loc[2025, "source_filtered_rows"] == 1
+    assert by_year.loc[2025, "official_only_rows"] == 1
+
+
+def test_official_oblast_rows_with_missing_raion_hromada_survive_preparation() -> None:
+    events = prepare_metric_events(
+        _frame(
+            [
+                {
+                    "oblast": "Dnipropetrovska oblast",
+                    "raion": None,
+                    "hromada": None,
+                    "level": "oblast",
+                    "source": "official",
+                    "started_at": pd.Timestamp("2024-02-01 08:00:00+00:00"),
+                    "finished_at": pd.Timestamp("2024-02-01 09:00:00+00:00"),
+                }
+            ]
+        )
+    )
+
+    assert len(events) == 1
+    assert events.loc[0, "region"] == "Dnipropetrovska oblast"
+
+
+def test_raion_hromada_rows_with_oblast_roll_up_in_audit() -> None:
+    audit = audit_metric_pipeline_by_year(
+        _frame(
+            [
+                {
+                    "oblast": "Dnipropetrovska oblast",
+                    "raion": "Dnipro raion",
+                    "hromada": None,
+                    "level": "raion",
+                    "source": "official",
+                    "started_at": pd.Timestamp("2024-02-01 08:00:00+00:00"),
+                    "finished_at": pd.Timestamp("2024-02-01 09:00:00+00:00"),
+                },
+                {
+                    "oblast": "Dnipropetrovska oblast",
+                    "raion": "Dnipro raion",
+                    "hromada": "Dnipro hromada",
+                    "level": "hromada",
+                    "source": "official",
+                    "started_at": pd.Timestamp("2024-02-01 08:30:00+00:00"),
+                    "finished_at": pd.Timestamp("2024-02-01 09:30:00+00:00"),
+                },
+            ]
+        )
+    )
+
+    row = audit.iloc[0]
+    assert row["prepared_metric_intervals"] == 2
+    assert row["merged_intervals"] == 1
+    assert row["oblast_episode_count"] == 1
+    assert row["levels_present"] == ["hromada", "raion"]
+
+
+def test_debug_region_yearly_counts_reports_region_pipeline_stages() -> None:
+    frame = _frame(
+        [
+            {
+                "oblast": "Dnipropetrovska oblast",
+                "source": "official",
+                "level": "oblast",
+                "started_at": pd.Timestamp("2024-02-01 08:00:00+00:00"),
+                "finished_at": pd.Timestamp("2024-02-01 09:00:00+00:00"),
+            },
+            {
+                "oblast": "Dnipropetrovska oblast",
+                "source": "official",
+                "level": "raion",
+                "started_at": pd.Timestamp("2024-02-01 08:30:00+00:00"),
+                "finished_at": pd.Timestamp("2024-02-01 09:30:00+00:00"),
+            },
+        ]
+    )
+
+    debug = debug_region_yearly_counts(
+        frame,
+        "Dnipropetrovska oblast",
+    )
+    row = debug.iloc[0]
+
+    assert row["year"] == 2024
+    assert row["raw_records"] == 2
+    assert row["prepared_intervals"] == 2
+    assert row["merged_episodes"] == 1
+    assert row["oblast_episode_count"] == 1
+    assert row["affected_oblast_hours"] == pytest.approx(1.5)
+    assert row["levels_present"] == ["oblast", "raion"]

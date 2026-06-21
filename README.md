@@ -6,11 +6,10 @@ This project is for analysis and visualization only. It is not an attack predict
 
 ## Main Features
 
-- Historical overview with total alerts, alert hours, daily trends, and top regions.
+- Historical overview with national alert waves, affected oblast hours, daily trends, and top regions.
 - Regional explorer with date/source filters, daily trends, hourly-weekday heatmap, and monthly summaries.
 - Live map page using alerts.in.ua current oblast status, with a safe fallback table when map geometry is unavailable.
 - Anomaly lab with transparent rolling anomaly scores and nearby holiday/date context.
-- AI process page documenting architecture, prompt stages, test failures, and repairs.
 
 ## Data Sources
 
@@ -38,6 +37,8 @@ The live map uses `data/geo/ukraine_oblasts.geojson` for oblast geometry. That G
 The dashboard may help explore historical patterns, but it does not make predictions or provide safety guidance. For real-time decisions, use official alerts, local authorities, and trusted emergency channels.
 
 ## Run Locally
+
+The app is intentionally dark-first and includes `.streamlit/config.toml` so the Streamlit shell, widgets, tables, and charts use a matching dark theme.
 
 ```powershell
 python -m venv .venv
@@ -81,7 +82,6 @@ src/air_alerts/
   dashboard.py           Pure helpers for overview and regional pages
   anomaly_view.py        Pure helpers for anomaly lab tables/summaries
   pages/                 Streamlit pages
-prompts/                 AI-assisted development prompt log placeholders
 reports/                 Submission reflection and checklist
 tests/                   Unit tests
 ```
@@ -89,7 +89,7 @@ tests/                   Unit tests
 ## Methodology
 
 - Kyiv timezone conversion: source timestamps are parsed as UTC, then Kyiv-local columns are added for calendar and daily analysis.
-- Daily aggregations: alert counts and durations are aggregated by Kyiv-local date; unfinished alerts are excluded from default historical summaries.
+- Daily aggregations: overlapping oblast intervals are merged before episode counts and affected hours are aggregated by Kyiv-local date; unfinished alerts are excluded from default historical summaries.
 - Holiday proximity: Ukrainian public holidays and selected important dates are added as nearby context for daily rows.
 - Rolling anomaly score: daily region-level alert count and duration are combined into a transparent activity score and compared with a rolling regional baseline.
 - Live map status: compact alerts.in.ua oblast statuses are normalized into `active`, `partial`, `no_alert`, or `unknown`.
@@ -104,7 +104,7 @@ tests/                   Unit tests
 
 ## AI-Assisted Development Process
 
-The AI Process page and `prompts/` directory document how the project was built with iterative prompts, tests, and repairs. The log is intentionally a concise support artifact, not a fake full chat export.
+The AI-assisted development process is documented in the external AI log submitted with the project and summarized in `reports/reflection.md`. The app does not include a separate AI Process page; the dashboard stays focused on the analytical workflow.
 
 Notable repairs included:
 
@@ -121,4 +121,3 @@ Add final screenshots here before submission:
 - Regional Explorer:
 - Live Map fallback or map:
 - Anomaly Lab:
-- AI Process:

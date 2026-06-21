@@ -53,6 +53,33 @@ SUMMARY_COLUMNS = [
     "first_date",
     "last_date",
 ]
+PIPELINE_AUDIT_COLUMNS = [
+    "year",
+    "raw_loaded_rows",
+    "featured_rows",
+    "source_filtered_rows",
+    "official_only_rows",
+    "duplicate_raw_records_count",
+    "deduplicated_rows",
+    "prepared_metric_intervals",
+    "merged_intervals",
+    "daily_metric_rows",
+    "oblast_episode_count",
+    "affected_oblast_hours",
+    "sources_present",
+    "levels_present",
+]
+REGION_YEARLY_DEBUG_COLUMNS = [
+    "year",
+    "raw_records",
+    "duplicate_raw_records_count",
+    "prepared_intervals",
+    "merged_episodes",
+    "oblast_episode_count",
+    "affected_oblast_hours",
+    "sources_present",
+    "levels_present",
+]
 
 
 def prepare_metric_events(
@@ -327,6 +354,125 @@ def build_metric_tables(
     )
 
 
+def audit_metric_pipeline_by_year(
+    frame: pd.DataFrame,
+    *,
+    source: str | Iterable[str] | None = "official",
+    merge_gap_tolerance: pd.Timedelta | str | int | float = DEFAULT_MERGE_GAP_TOLERANCE,
+) -> pd.DataFrame:
+    """Return yearly diagnostics for each stage of the metric pipeline.
+
+    This helper is intentionally diagnostic: it compares raw row volume, source
+    filtering, deduplication, prepared intervals, merged episodes, and daily
+    affected-hour output without changing the dashboard metric definitions.
+    """
+    featured = _ensure_featured(frame)
+    if featured.empty:
+        return pd.DataFrame(columns=PIPELINE_AUDIT_COLUMNS)
+
+    source_values = _normalize_sources(source)
+    raw = _with_start_year(featured)
+    source_filtered = _filter_sources(raw, source_values)
+    official_only = _filter_sources(raw, ("official",))
+    deduplicated = _drop_duplicate_raw_records(source_filtered)
+
+    events = prepare_metric_events(
+        featured,
+        sources=source_values,
+    )
+    events = _with_start_year(events)
+    merged = merge_overlapping_intervals(
+        events,
+        merge_gap_tolerance=merge_gap_tolerance,
+    )
+    merged = _with_start_year(merged)
+    daily = _daily_oblast_from_merged(merged, events, include_unfinished=False)
+    daily = _with_date_year(daily)
+
+    years = _audit_years(raw, source_filtered, official_only, deduplicated, events, merged, daily)
+    rows = []
+    for year in years:
+        raw_year = _year_slice(raw, year)
+        source_year = _year_slice(source_filtered, year)
+        daily_year = _year_slice(daily, year)
+        rows.append(
+            {
+                "year": int(year),
+                "raw_loaded_rows": int(len(raw_year)),
+                "featured_rows": int(len(raw_year)),
+                "source_filtered_rows": int(len(source_year)),
+                "official_only_rows": int(len(_year_slice(official_only, year))),
+                "duplicate_raw_records_count": _duplicate_raw_records_count(source_year),
+                "deduplicated_rows": int(len(_year_slice(deduplicated, year))),
+                "prepared_metric_intervals": int(len(_year_slice(events, year))),
+                "merged_intervals": int(len(_year_slice(merged, year))),
+                "daily_metric_rows": int(len(daily_year)),
+                "oblast_episode_count": int(daily_year["oblast_episode_count"].sum())
+                if "oblast_episode_count" in daily_year.columns
+                else 0,
+                "affected_oblast_hours": float(daily_year["affected_oblast_hours"].sum())
+                if "affected_oblast_hours" in daily_year.columns
+                else 0.0,
+                "sources_present": _present_values(source_year, "source"),
+                "levels_present": _present_values(source_year, "level"),
+            }
+        )
+    return pd.DataFrame(rows, columns=PIPELINE_AUDIT_COLUMNS)
+
+
+def debug_region_yearly_counts(
+    frame: pd.DataFrame,
+    region: str,
+    *,
+    source: str | Iterable[str] | None = "official",
+    merge_gap_tolerance: pd.Timedelta | str | int | float = DEFAULT_MERGE_GAP_TOLERANCE,
+) -> pd.DataFrame:
+    """Return yearly metric-pipeline diagnostics for one analytical oblast."""
+    featured = _ensure_featured(frame)
+    if featured.empty:
+        return pd.DataFrame(columns=REGION_YEARLY_DEBUG_COLUMNS)
+
+    source_values = _normalize_sources(source)
+    raw = _filter_sources(featured, source_values)
+    raw = raw.copy()
+    raw["analytical_region"] = _oblast_region(raw)
+    raw = _with_start_year(raw[raw["analytical_region"] == region].copy())
+
+    events = prepare_metric_events(featured, sources=source_values)
+    events = _with_start_year(events[events["region"] == region].copy())
+    merged = merge_overlapping_intervals(
+        events,
+        merge_gap_tolerance=merge_gap_tolerance,
+    )
+    merged = _with_start_year(merged)
+    daily = _daily_oblast_from_merged(merged, events, include_unfinished=False)
+    daily = _with_date_year(daily)
+
+    years = _audit_years(raw, events, merged, daily)
+    rows = []
+    for year in years:
+        raw_year = _year_slice(raw, year)
+        daily_year = _year_slice(daily, year)
+        rows.append(
+            {
+                "year": int(year),
+                "raw_records": int(len(raw_year)),
+                "duplicate_raw_records_count": _duplicate_raw_records_count(raw_year),
+                "prepared_intervals": int(len(_year_slice(events, year))),
+                "merged_episodes": int(len(_year_slice(merged, year))),
+                "oblast_episode_count": int(daily_year["oblast_episode_count"].sum())
+                if "oblast_episode_count" in daily_year.columns
+                else 0,
+                "affected_oblast_hours": float(daily_year["affected_oblast_hours"].sum())
+                if "affected_oblast_hours" in daily_year.columns
+                else 0.0,
+                "sources_present": _present_values(raw_year, "source"),
+                "levels_present": _present_values(raw_year, "level"),
+            }
+        )
+    return pd.DataFrame(rows, columns=REGION_YEARLY_DEBUG_COLUMNS)
+
+
 def debug_region_day_metrics(
     frame: pd.DataFrame,
     region: str,
@@ -549,6 +695,46 @@ def _national_alert_wave_counts(
         .size()
         .reset_index(name="national_alert_wave_count")
     )
+
+
+def _with_start_year(frame: pd.DataFrame) -> pd.DataFrame:
+    result = frame.copy()
+    if "started_at_kyiv" not in result.columns or result.empty:
+        result["audit_year"] = pd.Series(dtype="Int64")
+        return result
+    result["audit_year"] = result["started_at_kyiv"].dt.year.astype("Int64")
+    return result
+
+
+def _with_date_year(frame: pd.DataFrame) -> pd.DataFrame:
+    result = frame.copy()
+    if "date" not in result.columns or result.empty:
+        result["audit_year"] = pd.Series(dtype="Int64")
+        return result
+    result["audit_year"] = pd.to_datetime(result["date"], errors="coerce").dt.year.astype("Int64")
+    return result
+
+
+def _audit_years(*frames: pd.DataFrame) -> list[int]:
+    years: set[int] = set()
+    for frame in frames:
+        if "audit_year" not in frame.columns or frame.empty:
+            continue
+        for value in frame["audit_year"].dropna().unique():
+            years.add(int(value))
+    return sorted(years)
+
+
+def _year_slice(frame: pd.DataFrame, year: int) -> pd.DataFrame:
+    if "audit_year" not in frame.columns or frame.empty:
+        return frame.iloc[0:0].copy()
+    return frame[frame["audit_year"] == year].copy()
+
+
+def _present_values(frame: pd.DataFrame, column: str) -> list[str]:
+    if column not in frame.columns or frame.empty:
+        return []
+    return sorted(frame[column].dropna().astype(str).unique().tolist())
 
 
 def _drop_duplicate_raw_records(frame: pd.DataFrame) -> pd.DataFrame:

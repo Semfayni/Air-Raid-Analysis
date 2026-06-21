@@ -10,16 +10,16 @@ from air_alerts.pages.data_cache import (
     load_featured_historical_data,
     load_historical_metric_tables,
 )
-from air_alerts.ui import PRIMARY_COLOR, compact_note, page_header, section, style_figure
+from air_alerts.ui import PRIMARY_COLOR, SECONDARY_COLOR, compact_note, page_header, section, style_figure
 
 
 def render() -> None:
     """Render the historical dashboard overview."""
     page_header(
-        "Ukraine Air Alert Intelligence Dashboard",
-        "Historical air alert patterns, regional comparisons, and exploratory signals.",
+        "Overview",
+        "National historical patterns and regional concentration from official oblast-level metrics.",
     )
-    compact_note("Historical views use the CSV dataset. Live API calls are limited to the Live Map page.")
+    compact_note("Historical pages use the CSV dataset. Live API calls are limited to the Live Map.")
 
     try:
         with st.spinner("Loading historical alert data..."):
@@ -54,7 +54,8 @@ def render() -> None:
             "Timestamps are converted from UTC to Kyiv local time for daily aggregation. "
             "Duration metrics merge overlapping intervals inside each oblast before daily "
             "summation. The overview count chart merges simultaneous oblast episodes into "
-            "national alert waves, so a broad alert window is not counted once per raw row."
+            "national alert waves, so a broad alert window is not counted once per raw row. "
+            "Visible changes over time can reflect official dataset coverage or granularity changes."
         )
 
     section("National Trends", "Daily national alert waves and affected oblast hours.")
@@ -82,7 +83,7 @@ def render() -> None:
             y="affected_oblast_hours",
             title="Daily Affected Oblast Hours",
             labels={"affected_oblast_hours": "Affected oblast hours", "date": "Date"},
-            color_discrete_sequence=["#8a3ffc"],
+            color_discrete_sequence=[SECONDARY_COLOR],
         )
         st.plotly_chart(style_figure(duration_figure, height=360), width="stretch")
 
@@ -113,6 +114,6 @@ def render() -> None:
             title="Top Regions by Affected Hours",
             orientation="h",
             labels={"affected_oblast_hours": "Affected oblast hours", "region": "Region"},
-            color_discrete_sequence=["#6f4e37"],
+            color_discrete_sequence=[SECONDARY_COLOR],
         ).update_layout(yaxis={"categoryorder": "total ascending"})
         st.plotly_chart(style_figure(figure, height=420), width="stretch")

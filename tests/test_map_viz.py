@@ -12,10 +12,10 @@ from air_alerts.map_viz import (
 
 
 def test_status_color_mapping() -> None:
-    assert get_status_color("active") == "#d7263d"
-    assert get_status_color("partial") == "#f08a24"
-    assert get_status_color("no_alert") == "#e9e4d8"
-    assert get_status_color("not-a-real-status") == "#d7dce2"
+    assert get_status_color("active") == "#ef4444"
+    assert get_status_color("partial") == "#f59e0b"
+    assert get_status_color("no_alert") == "#64748b"
+    assert get_status_color("not-a-real-status") == "#334155"
 
 
 def test_region_name_normalization_and_mapping() -> None:
