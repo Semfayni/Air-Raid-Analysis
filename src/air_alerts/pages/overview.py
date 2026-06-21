@@ -5,14 +5,11 @@ from __future__ import annotations
 import plotly.express as px
 import streamlit as st
 
-from air_alerts.dashboard import (
-    overview_kpis,
-    top_regions_by_alert_count,
-    top_regions_by_duration,
-)
 from air_alerts.data import HistoricalDataError, HistoricalSchemaError
-from air_alerts.features import daily_alert_count, daily_alert_duration
-from air_alerts.pages.data_cache import load_featured_historical_data
+from air_alerts.pages.data_cache import (
+    load_featured_historical_data,
+    load_historical_metric_tables,
+)
 from air_alerts.ui import PRIMARY_COLOR, compact_note, page_header, section, style_figure
 
 
@@ -27,52 +24,64 @@ def render() -> None:
     try:
         with st.spinner("Loading historical alert data..."):
             featured = load_featured_historical_data()
+            _, national_daily, regional_summary = load_historical_metric_tables()
     except (HistoricalDataError, HistoricalSchemaError, ValueError) as exc:
         st.error(f"Historical data could not be loaded: {exc}")
         return
 
-    completed = featured[featured["is_finished"]]
-    if completed.empty:
-        st.warning("No completed historical alerts are available for overview metrics.")
+    if national_daily.empty:
+        st.warning("No completed oblast-level alert intervals are available for overview metrics.")
         return
 
-    kpis = overview_kpis(featured)
+    date_range = f"{featured['date'].min()} to {featured['date'].max()}"
+    most_affected_region = (
+        str(regional_summary.loc[0, "region"]) if not regional_summary.empty else "No region"
+    )
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Alerts", f"{kpis.total_alerts:,}")
-    col2.metric("Total Alert Hours", f"{kpis.total_alert_hours:,.0f}")
-    col3.metric("Date Range", kpis.date_range)
-    col4.metric("Most Affected Region", kpis.most_affected_region)
+    col1.metric(
+        "National Alert Waves",
+        f"{int(national_daily['national_alert_wave_count'].sum()):,}",
+    )
+    col2.metric(
+        "Affected Oblast Hours",
+        f"{national_daily['affected_oblast_hours'].sum():,.0f}",
+    )
+    col3.metric("Date Range", date_range)
+    col4.metric("Most Affected Region", most_affected_region)
 
     with st.expander("Methodology note"):
         st.write(
             "Timestamps are converted from UTC to Kyiv local time for daily aggregation. "
-            "Default summaries use completed alerts, so rows without a finish time do not "
-            "inflate duration-based metrics."
+            "Duration metrics merge overlapping intervals inside each oblast before daily "
+            "summation. The overview count chart merges simultaneous oblast episodes into "
+            "national alert waves, so a broad alert window is not counted once per raw row."
         )
 
-    daily_counts = daily_alert_count(featured)
-    daily_duration = daily_alert_duration(featured)
-    daily_duration["duration_hours"] = daily_duration["duration_minutes"] / 60
-
-    section("National Trends", "Daily count and total duration across all regions.")
+    section("National Trends", "Daily national alert waves and affected oblast hours.")
     trend_left, trend_right = st.columns(2)
     with trend_left:
         count_figure = px.line(
-            daily_counts,
+            national_daily,
             x="date",
-            y="alert_count",
-            title="Daily Alert Count",
-            labels={"alert_count": "Alerts", "date": "Date"},
+            y="national_alert_wave_count",
+            title="Daily National Alert Waves",
+            labels={
+                "national_alert_wave_count": "National alert waves",
+                "date": "Date",
+                "national_oblast_episode_count": "Oblast episode starts",
+                "active_oblasts_count": "Active oblasts",
+            },
+            hover_data=["national_oblast_episode_count", "active_oblasts_count"],
             color_discrete_sequence=[PRIMARY_COLOR],
         )
         st.plotly_chart(style_figure(count_figure, height=360), width="stretch")
     with trend_right:
         duration_figure = px.line(
-            daily_duration,
+            national_daily,
             x="date",
-            y="duration_hours",
-            title="Daily Alert Hours",
-            labels={"duration_hours": "Alert hours", "date": "Date"},
+            y="affected_oblast_hours",
+            title="Daily Affected Oblast Hours",
+            labels={"affected_oblast_hours": "Affected oblast hours", "date": "Date"},
             color_discrete_sequence=["#8a3ffc"],
         )
         st.plotly_chart(style_figure(duration_figure, height=360), width="stretch")
@@ -80,26 +89,30 @@ def render() -> None:
     section("Regional Concentration", "Regions with the largest historical alert load.")
     left, right = st.columns(2)
     with left:
-        top_count = top_regions_by_alert_count(featured)
+        top_count = (
+            regional_summary.sort_values("oblast_episode_count", ascending=False)
+            .head(10)
+            .copy()
+        )
         figure = px.bar(
             top_count,
-            x="alert_count",
+            x="oblast_episode_count",
             y="region",
-            title="Top Regions by Alert Count",
+            title="Top Regions by Episode Starts",
             orientation="h",
-            labels={"alert_count": "Alerts", "region": "Region"},
+            labels={"oblast_episode_count": "Episode starts", "region": "Region"},
             color_discrete_sequence=[PRIMARY_COLOR],
         ).update_layout(yaxis={"categoryorder": "total ascending"})
         st.plotly_chart(style_figure(figure, height=420), width="stretch")
     with right:
-        top_duration = top_regions_by_duration(featured)
+        top_duration = regional_summary.head(10).copy()
         figure = px.bar(
             top_duration,
-            x="total_duration_hours",
+            x="affected_oblast_hours",
             y="region",
-            title="Top Regions by Total Duration",
+            title="Top Regions by Affected Hours",
             orientation="h",
-            labels={"total_duration_hours": "Alert hours", "region": "Region"},
+            labels={"affected_oblast_hours": "Affected oblast hours", "region": "Region"},
             color_discrete_sequence=["#6f4e37"],
         ).update_layout(yaxis={"categoryorder": "total ascending"})
         st.plotly_chart(style_figure(figure, height=420), width="stretch")

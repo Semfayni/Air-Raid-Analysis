@@ -27,6 +27,14 @@ def _featured_frame() -> pd.DataFrame:
                 ],
                 utc=True,
             ),
+            "finished_at": pd.to_datetime(
+                [
+                    "2024-01-01T02:00:00Z",
+                    "2024-01-02T03:00:00Z",
+                    None,
+                ],
+                utc=True,
+            ),
             "duration_hours": [1.0, 2.0, pd.NA],
             "is_finished": [True, True, False],
         }
@@ -36,8 +44,11 @@ def _featured_frame() -> pd.DataFrame:
 def test_overview_kpis_ignore_unfinished_for_totals() -> None:
     kpis = overview_kpis(_featured_frame())
 
-    assert kpis.total_alerts == 2
-    assert kpis.total_alert_hours == 3.0
+    assert not hasattr(kpis, "total_alerts")
+    assert kpis.national_alert_wave_count == 1
+    assert kpis.national_oblast_episode_count == 1
+    assert kpis.alert_start_count == 1
+    assert kpis.affected_oblast_hours == 1.0
     assert kpis.most_affected_region == "Kyiv Oblast"
 
 
@@ -56,22 +67,53 @@ def test_filter_featured_alerts_by_region_date_and_source() -> None:
 def test_top_regions_by_alert_count() -> None:
     top = top_regions_by_alert_count(_featured_frame())
 
-    assert list(top.columns) == ["region", "alert_count"]
+    assert list(top.columns) == ["region", "oblast_episode_count"]
     assert top.loc[0, "region"] == "Kyiv Oblast"
-    assert top.loc[0, "alert_count"] == 2
+    assert top.loc[0, "oblast_episode_count"] == 1
 
 
 def test_monthly_alert_trend() -> None:
     monthly = monthly_alert_trend(_featured_frame())
 
     assert list(monthly["month"]) == ["2024-01"]
-    assert monthly.loc[0, "alert_count"] == 2
+    assert monthly.loc[0, "oblast_episode_count"] == 1
+
+
+def test_monthly_alert_trend_uses_merged_episode_starts() -> None:
+    frame = pd.DataFrame(
+        {
+            "region": ["Kyiv Oblast", "Kyiv Oblast", "Kyiv Oblast"],
+            "source": ["official", "official", "official"],
+            "date": [date(2024, 1, 1)] * 3,
+            "started_at": pd.to_datetime(
+                [
+                    "2024-01-01T08:00:00Z",
+                    "2024-01-01T08:00:00Z",
+                    "2024-01-01T08:15:00Z",
+                ],
+                utc=True,
+            ),
+            "finished_at": pd.to_datetime(
+                [
+                    "2024-01-01T09:00:00Z",
+                    "2024-01-01T09:00:00Z",
+                    "2024-01-01T09:30:00Z",
+                ],
+                utc=True,
+            ),
+            "is_finished": [True, True, True],
+        }
+    )
+
+    monthly = monthly_alert_trend(frame)
+
+    assert monthly.loc[0, "oblast_episode_count"] == 1
 
 
 def test_region_interpretation_is_deterministic() -> None:
     text = region_interpretation("Kyiv Oblast", _featured_frame())
 
     assert text == (
-        "Kyiv Oblast: 2 completed alerts from 2024-01-01 to 2024-01-02, "
-        "with 3.0 total alert hours and an average duration of 1.50 hours."
+        "Kyiv Oblast: 1 merged oblast episode starts from 2024-01-01 "
+        "to 2024-01-01, with 1.0 affected oblast hours across 1 active days."
     )

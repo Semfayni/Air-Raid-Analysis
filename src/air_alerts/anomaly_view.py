@@ -8,8 +8,8 @@ import pandas as pd
 TOP_ANOMALY_COLUMNS = [
     "date",
     "region",
-    "alert_count",
-    "total_duration_hours",
+    "oblast_episode_count",
+    "affected_oblast_hours",
     "z_score",
     "nearest_holiday_name",
     "days_to_nearest_holiday",
@@ -24,7 +24,7 @@ def top_anomalies(anomalies: pd.DataFrame, limit: int = 25) -> pd.DataFrame:
     top = anomalies[anomalies["is_anomaly"]].copy()
     if top.empty:
         return pd.DataFrame(columns=TOP_ANOMALY_COLUMNS)
-    top = top.sort_values(["z_score", "alert_count"], ascending=False).head(limit)
+    top = top.sort_values(["z_score", "oblast_episode_count"], ascending=False).head(limit)
     return top[TOP_ANOMALY_COLUMNS].reset_index(drop=True)
 
 

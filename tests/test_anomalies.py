@@ -18,7 +18,7 @@ def _alert_rows(
     for day_offset, count in enumerate(daily_counts):
         day = current + pd.Timedelta(days=day_offset)
         for alert_index in range(count):
-            started_at_kyiv = day + pd.Timedelta(hours=alert_index)
+            started_at_kyiv = day + pd.Timedelta(hours=alert_index * 2)
             finished_at_kyiv = started_at_kyiv + pd.Timedelta(hours=1)
             rows.append(
                 {
@@ -87,8 +87,8 @@ def test_unfinished_alerts_are_excluded_by_default() -> None:
     default_daily = build_daily_region_timeseries(frame)
     inclusive_daily = build_daily_region_timeseries(frame, include_unfinished=True)
 
-    assert default_daily.loc[0, "alert_count"] == 1
-    assert inclusive_daily.loc[0, "alert_count"] == 2
+    assert default_daily.loc[0, "oblast_episode_count"] == 1
+    assert inclusive_daily.loc[0, "oblast_episode_count"] == 2
 
 
 def test_output_contains_deterministic_explanation_text() -> None:

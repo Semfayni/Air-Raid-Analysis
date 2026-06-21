@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pandas as pd
 
 
@@ -56,14 +58,63 @@ def daily_alert_duration(
     *,
     include_unfinished: bool = False,
 ) -> pd.DataFrame:
-    """Sum alert duration by Kyiv-local date."""
+    """Sum alert duration by Kyiv-local date, splitting intervals across days."""
     filtered = _analysis_frame(frame, region, include_unfinished=include_unfinished)
+    allocated = allocate_alert_duration_by_day(filtered)
+    if allocated.empty:
+        return pd.DataFrame(columns=["date", "total_duration_hours", "duration_minutes"])
     return (
-        filtered.groupby("date", dropna=False)["duration_minutes"]
-        .sum(min_count=1)
-        .reset_index(name="duration_minutes")
+        allocated.groupby("date", dropna=False)["duration_hours"]
+        .sum()
+        .reset_index(name="total_duration_hours")
         .sort_values("date", ignore_index=True)
+        .assign(duration_minutes=lambda data: data["total_duration_hours"] * 60)
     )
+
+
+def allocate_alert_duration_by_day(frame: pd.DataFrame) -> pd.DataFrame:
+    """Allocate finished alert interval hours across overlapping Kyiv-local dates."""
+    featured = (
+        add_historical_features(frame)
+        if not _has_required_features(frame)
+        else frame.copy()
+    )
+    finished = featured[featured["is_finished"]].copy()
+    rows = []
+    for row in finished.itertuples(index=False):
+        rows.extend(
+            _split_interval_by_kyiv_day(
+                getattr(row, "started_at_kyiv"),
+                getattr(row, "finished_at_kyiv"),
+                getattr(row, "region", None),
+            )
+        )
+    return pd.DataFrame(
+        rows,
+        columns=["date", "region", "duration_seconds", "duration_hours"],
+    )
+
+
+def largest_raw_alert_durations(frame: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
+    """Return longest raw alert durations for spike diagnostics."""
+    featured = (
+        add_historical_features(frame)
+        if not _has_required_features(frame)
+        else frame.copy()
+    )
+    completed = featured[featured["is_finished"]].copy()
+    columns = ["region", "started_at_kyiv", "finished_at_kyiv", "duration_hours"]
+    if completed.empty:
+        return pd.DataFrame(columns=columns)
+    return completed.sort_values("duration_hours", ascending=False)[columns].head(limit)
+
+
+def largest_daily_duration_values(frame: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
+    """Return largest split daily duration totals for spike diagnostics."""
+    daily = daily_alert_duration(frame)
+    if daily.empty:
+        return daily
+    return daily.sort_values("total_duration_hours", ascending=False).head(limit)
 
 
 def regional_summary(
@@ -157,9 +208,38 @@ def _add_duration_columns(frame: pd.DataFrame) -> None:
     _require_columns(frame, {"started_at", "finished_at"})
     frame["is_finished"] = frame["finished_at"].notna()
     duration = frame["finished_at"] - frame["started_at"]
+    negative_duration = frame["is_finished"] & (duration.dt.total_seconds() < 0)
+    if negative_duration.any():
+        raise FeatureEngineeringError("Alert duration must not be negative.")
     frame["duration_minutes"] = duration.dt.total_seconds() / 60
     frame.loc[~frame["is_finished"], "duration_minutes"] = pd.NA
     frame["duration_hours"] = frame["duration_minutes"] / 60
+
+
+def _split_interval_by_kyiv_day(start, finish, region: object) -> list[dict[str, object]]:
+    if pd.isna(start) or pd.isna(finish):
+        return []
+    if finish < start:
+        raise FeatureEngineeringError("Alert duration must not be negative.")
+
+    current = start
+    rows = []
+    while current < finish:
+        next_date = current.date() + timedelta(days=1)
+        next_midnight = pd.Timestamp(next_date).tz_localize(KYIV_TIMEZONE)
+        segment_end = min(finish, next_midnight)
+        duration_seconds = (segment_end - current).total_seconds()
+        if duration_seconds > 0:
+            rows.append(
+                {
+                    "date": current.date(),
+                    "region": region,
+                    "duration_seconds": duration_seconds,
+                    "duration_hours": duration_seconds / 3600,
+                }
+            )
+        current = segment_end
+    return rows
 
 
 def _add_calendar_columns(frame: pd.DataFrame) -> None:

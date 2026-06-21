@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import math
+from typing import Iterable
 
 import pandas as pd
 
-from air_alerts.features import add_historical_features
 from air_alerts.holidays import add_holiday_proximity_features
+from air_alerts.metrics import daily_oblast_metrics
 
 
 DEFAULT_ROLLING_WINDOW_DAYS = 30
@@ -17,8 +18,9 @@ ROBUST_Z_SCALE = 1.4826
 OUTPUT_COLUMNS = [
     "date",
     "region",
-    "alert_count",
-    "total_duration_hours",
+    "oblast_episode_count",
+    "alert_start_count",
+    "affected_oblast_hours",
     "average_duration_hours",
     "anomaly_score",
     "z_score",
@@ -39,35 +41,32 @@ def build_daily_region_timeseries(
     frame: pd.DataFrame,
     *,
     include_unfinished: bool = False,
+    sources: str | Iterable[str] | None = ("official",),
 ) -> pd.DataFrame:
-    """Build a daily region-level activity table from historical alert rows."""
-    featured = _ensure_featured(frame)
-    if not include_unfinished:
-        featured = featured[featured["is_finished"]]
-
-    if featured.empty:
+    """Build a daily oblast-level activity table from merged interval metrics."""
+    daily = daily_oblast_metrics(
+        frame,
+        include_unfinished=include_unfinished,
+        sources=sources,
+    )
+    if daily.empty:
         return pd.DataFrame(
             columns=[
                 "date",
                 "region",
-                "alert_count",
-                "total_duration_hours",
+                "oblast_episode_count",
+                "alert_start_count",
+                "affected_oblast_hours",
                 "average_duration_hours",
             ]
         )
 
-    daily = (
-        featured.groupby(["date", "region"], dropna=False)
-        .agg(
-            alert_count=("started_at", "size"),
-            total_duration_hours=("duration_hours", "sum"),
-            average_duration_hours=("duration_hours", "mean"),
-        )
-        .reset_index()
-    )
     daily["date"] = pd.to_datetime(daily["date"]).dt.date
-    daily["total_duration_hours"] = daily["total_duration_hours"].fillna(0.0)
-    daily["average_duration_hours"] = daily["average_duration_hours"].fillna(0.0)
+    daily["average_duration_hours"] = (
+        daily["affected_oblast_hours"] / daily["oblast_episode_count"].where(
+            daily["oblast_episode_count"] > 0
+        )
+    ).fillna(0.0)
 
     return _fill_missing_region_dates(daily)
 
@@ -76,6 +75,7 @@ def detect_daily_anomalies(
     frame: pd.DataFrame,
     *,
     include_unfinished: bool = False,
+    sources: str | Iterable[str] | None = ("official",),
     rolling_window: int = DEFAULT_ROLLING_WINDOW_DAYS,
     min_periods: int = DEFAULT_MIN_PERIODS,
     z_threshold: float = DEFAULT_Z_THRESHOLD,
@@ -91,6 +91,7 @@ def detect_daily_anomalies(
     daily = build_daily_region_timeseries(
         frame,
         include_unfinished=include_unfinished,
+        sources=sources,
     )
     if daily.empty:
         empty = daily.copy()
@@ -115,17 +116,6 @@ def detect_daily_anomalies(
     return with_holidays[OUTPUT_COLUMNS]
 
 
-def _ensure_featured(frame: pd.DataFrame) -> pd.DataFrame:
-    required = {
-        "date",
-        "region",
-        "duration_hours",
-        "is_finished",
-        "started_at",
-    }
-    return frame.copy() if required.issubset(frame.columns) else add_historical_features(frame)
-
-
 def _fill_missing_region_dates(daily: pd.DataFrame) -> pd.DataFrame:
     frames = []
     for region, region_frame in daily.groupby("region", dropna=False):
@@ -134,8 +124,9 @@ def _fill_missing_region_dates(daily: pd.DataFrame) -> pd.DataFrame:
         filled = indexed.reindex(date_index)
         filled["date"] = date_index.date
         filled["region"] = region
-        filled["alert_count"] = filled["alert_count"].fillna(0).astype(int)
-        filled["total_duration_hours"] = filled["total_duration_hours"].fillna(0.0)
+        filled["oblast_episode_count"] = filled["oblast_episode_count"].fillna(0).astype(int)
+        filled["alert_start_count"] = filled["alert_start_count"].fillna(0).astype(int)
+        filled["affected_oblast_hours"] = filled["affected_oblast_hours"].fillna(0.0)
         filled["average_duration_hours"] = filled["average_duration_hours"].fillna(0.0)
         frames.append(filled.reset_index(drop=True))
 
@@ -171,8 +162,8 @@ def _score_region(
     min_periods: int,
 ) -> pd.DataFrame:
     scored = region_frame.sort_values("date").copy()
-    count_signal = _normalize_series(scored["alert_count"])
-    duration_signal = _normalize_series(scored["total_duration_hours"])
+    count_signal = _normalize_series(scored["oblast_episode_count"])
+    duration_signal = _normalize_series(scored["affected_oblast_hours"])
     scored["anomaly_score"] = (count_signal + duration_signal) / 2
     scored["z_score"] = _rolling_z_score(
         scored["anomaly_score"],

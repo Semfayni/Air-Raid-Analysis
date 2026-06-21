@@ -16,8 +16,8 @@ def _scored_frame() -> pd.DataFrame:
         {
             "date": [date(2024, 8, 23), date(2024, 8, 24), date(2024, 8, 25)],
             "region": ["Kyiv Oblast", "Kyiv Oblast", "Lviv Oblast"],
-            "alert_count": [2, 10, 4],
-            "total_duration_hours": [2.0, 8.0, 3.0],
+            "oblast_episode_count": [2, 10, 4],
+            "affected_oblast_hours": [2.0, 8.0, 3.0],
             "z_score": [1.0, 3.2, 2.4],
             "is_anomaly": [False, True, True],
             "nearest_holiday_name": ["Independence Day", "Independence Day", "Christmas"],
@@ -34,8 +34,8 @@ def test_top_anomalies_returns_expected_columns() -> None:
     assert list(result.columns) == [
         "date",
         "region",
-        "alert_count",
-        "total_duration_hours",
+        "oblast_episode_count",
+        "affected_oblast_hours",
         "z_score",
         "nearest_holiday_name",
         "days_to_nearest_holiday",

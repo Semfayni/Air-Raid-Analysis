@@ -15,8 +15,10 @@ from air_alerts.anomaly_view import (
 )
 from air_alerts.dashboard import filter_featured_alerts
 from air_alerts.data import HistoricalDataError, HistoricalSchemaError
-from air_alerts.features import regional_summary
-from air_alerts.pages.data_cache import load_featured_historical_data
+from air_alerts.pages.data_cache import (
+    load_featured_historical_data,
+    load_historical_metric_tables,
+)
 from air_alerts.ui import (
     ACCENT_COLOR,
     PRIMARY_COLOR,
@@ -33,6 +35,7 @@ ALL_REGIONS = "All regions"
 @st.cache_data(show_spinner="Scoring daily anomaly signals...")
 def _detect_anomalies_cached(
     filtered: pd.DataFrame,
+    sources: tuple[str, ...] | None,
     rolling_window: int,
     min_periods: int,
     z_threshold: float,
@@ -40,6 +43,7 @@ def _detect_anomalies_cached(
 ) -> pd.DataFrame:
     return detect_daily_anomalies(
         filtered,
+        sources=sources,
         rolling_window=rolling_window,
         min_periods=min_periods,
         z_threshold=z_threshold,
@@ -61,17 +65,18 @@ def render() -> None:
 
     with st.expander("Methodology"):
         st.write(
-            "The lab first builds daily alert activity by region. It combines alert count "
-            "and total alert duration into a transparent activity score, then compares each "
-            "day with a rolling historical baseline for the same region. Higher z scores "
-            "mean the day was unusual relative to the selected rolling window. The holiday "
-            "window marks whether the date is within the selected number of days from a "
-            "Ukrainian public holiday or important date."
+            "The lab first builds daily oblast-level activity from merged episode starts and "
+            "affected oblast hours. It combines those two signals into a transparent activity "
+            "score, then compares each day with a rolling historical baseline for the same "
+            "oblast. Higher z scores mean the day was unusual relative to the selected "
+            "rolling window. The holiday window marks whether the date is within the selected "
+            "number of days from a Ukrainian public holiday or important date."
         )
 
     try:
         with st.spinner("Loading featured historical data..."):
             featured = load_featured_historical_data()
+            _, _, regional_summary = load_historical_metric_tables()
     except (HistoricalDataError, HistoricalSchemaError, ValueError) as exc:
         st.error(f"Historical data could not be loaded: {exc}")
         return
@@ -84,7 +89,7 @@ def render() -> None:
     max_date = featured["date"].max()
     with st.sidebar:
         st.header("Anomaly Controls")
-        selected_region = _region_selector(featured)
+        selected_region = _region_selector(regional_summary)
         selected_dates = st.date_input(
             "Date range",
             value=(min_date, max_date),
@@ -96,7 +101,8 @@ def render() -> None:
         selected_sources = None
         if "source" in featured.columns:
             sources = sorted(str(source) for source in featured["source"].dropna().unique())
-            selected_sources = st.multiselect("Source", sources, default=sources)
+            default_sources = ["official"] if "official" in sources else sources
+            selected_sources = st.multiselect("Source", sources, default=default_sources)
 
         z_threshold = st.slider("Z score threshold", 1.0, 5.0, 2.0, 0.1)
         rolling_window = st.slider("Rolling window days", 14, 120, 30, 1)
@@ -104,20 +110,21 @@ def render() -> None:
         min_periods = min(14, rolling_window)
 
     region_filter = None if selected_region == ALL_REGIONS else selected_region
-    filtered = filter_featured_alerts(
+    scoring_base = filter_featured_alerts(
         featured,
         region=region_filter,
-        date_range=date_range,
         sources=selected_sources,
     )
 
-    if filtered.empty:
+    if scoring_base.empty:
         st.warning("No alerts match the current filters.")
         return
 
     try:
+        source_tuple = tuple(selected_sources) if selected_sources is not None else None
         scored = _detect_anomalies_cached(
-            filtered,
+            scoring_base,
+            source_tuple,
             rolling_window,
             min_periods,
             z_threshold,
@@ -129,6 +136,13 @@ def render() -> None:
 
     if scored.empty:
         st.warning("No daily records are available after scoring.")
+        return
+
+    scored = scored[
+        (scored["date"] >= date_range[0]) & (scored["date"] <= date_range[1])
+    ].copy()
+    if scored.empty:
+        st.warning("No scored daily records match the selected date range.")
         return
 
     anomaly_rows = scored[scored["is_anomaly"]]
@@ -192,8 +206,7 @@ def _region_selector(featured: pd.DataFrame) -> str:
     regions = sorted(str(region) for region in featured["region"].dropna().unique())
     if not regions:
         return ALL_REGIONS
-    summary = regional_summary(featured)
-    default_region = str(summary.loc[0, "region"]) if not summary.empty else regions[0]
+    default_region = str(featured.loc[0, "region"]) if not featured.empty else regions[0]
     options = [ALL_REGIONS] + regions
     default_index = options.index(default_region) if default_region in options else 0
     return st.selectbox("Region", options, index=default_index)
@@ -203,10 +216,10 @@ def _activity_figure(scored: pd.DataFrame) -> go.Figure:
     figure = px.line(
         scored,
         x="date",
-        y="alert_count",
+        y="oblast_episode_count",
         color="region",
-        title="Daily Alert Count with Anomaly Markers",
-        labels={"alert_count": "Alerts", "date": "Date", "region": "Region"},
+        title="Daily Episode Starts with Anomaly Markers",
+        labels={"oblast_episode_count": "Episode starts", "date": "Date", "region": "Region"},
         color_discrete_sequence=[PRIMARY_COLOR, "#6f4e37", "#8a3ffc", "#2f855a"],
     )
     anomaly_rows = scored[scored["is_anomaly"]]
@@ -214,7 +227,7 @@ def _activity_figure(scored: pd.DataFrame) -> go.Figure:
         figure.add_trace(
             go.Scatter(
                 x=anomaly_rows["date"],
-                y=anomaly_rows["alert_count"],
+                y=anomaly_rows["oblast_episode_count"],
                 mode="markers",
                 name="Anomaly",
                 marker={"color": ACCENT_COLOR, "size": 9, "symbol": "diamond"},
