@@ -17,6 +17,14 @@ from air_alerts.dashboard import filter_featured_alerts
 from air_alerts.data import HistoricalDataError, HistoricalSchemaError
 from air_alerts.features import regional_summary
 from air_alerts.pages.data_cache import load_featured_historical_data
+from air_alerts.ui import (
+    ACCENT_COLOR,
+    PRIMARY_COLOR,
+    compact_note,
+    page_header,
+    section,
+    style_figure,
+)
 
 
 ALL_REGIONS = "All regions"
@@ -41,11 +49,14 @@ def _detect_anomalies_cached(
 
 def render() -> None:
     """Render the anomaly lab page."""
-    st.title("Anomaly Lab")
-    st.caption("Explainable daily alert activity signals with nearby holiday context.")
-    st.warning(
-        "Holiday proximity is exploratory context and does not imply causation. "
-        "Use this page to inspect patterns, not as an operational warning source."
+    page_header(
+        "Anomaly Lab",
+        "Inspect unusual daily regional activity with nearby holiday and important-date context.",
+    )
+    compact_note(
+        "Holiday proximity is exploratory context and not evidence of a direct relationship. "
+        "Use this page to inspect patterns, not as an operational warning source.",
+        kind="warning",
     )
 
     with st.expander("Methodology"):
@@ -59,7 +70,8 @@ def render() -> None:
         )
 
     try:
-        featured = load_featured_historical_data()
+        with st.spinner("Loading featured historical data..."):
+            featured = load_featured_historical_data()
     except (HistoricalDataError, HistoricalSchemaError, ValueError) as exc:
         st.error(f"Historical data could not be loaded: {exc}")
         return
@@ -68,27 +80,28 @@ def render() -> None:
         st.warning("No historical alerts are available.")
         return
 
-    selected_region = _region_selector(featured)
     min_date = featured["date"].min()
     max_date = featured["date"].max()
-    selected_dates = st.date_input(
-        "Date range",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date,
-    )
-    date_range = _normalize_date_range(selected_dates, min_date, max_date)
+    with st.sidebar:
+        st.header("Anomaly Controls")
+        selected_region = _region_selector(featured)
+        selected_dates = st.date_input(
+            "Date range",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date,
+        )
+        date_range = _normalize_date_range(selected_dates, min_date, max_date)
 
-    selected_sources = None
-    if "source" in featured.columns:
-        sources = sorted(str(source) for source in featured["source"].dropna().unique())
-        selected_sources = st.multiselect("Source", sources, default=sources)
+        selected_sources = None
+        if "source" in featured.columns:
+            sources = sorted(str(source) for source in featured["source"].dropna().unique())
+            selected_sources = st.multiselect("Source", sources, default=sources)
 
-    col1, col2, col3 = st.columns(3)
-    z_threshold = col1.slider("Z score threshold", 1.0, 5.0, 2.0, 0.1)
-    rolling_window = col2.slider("Rolling window days", 14, 120, 30, 1)
-    holiday_window_days = col3.slider("Holiday window days", 0, 14, 2, 1)
-    min_periods = min(14, rolling_window)
+        z_threshold = st.slider("Z score threshold", 1.0, 5.0, 2.0, 0.1)
+        rolling_window = st.slider("Rolling window days", 14, 120, 30, 1)
+        holiday_window_days = st.slider("Holiday window days", 0, 14, 2, 1)
+        min_periods = min(14, rolling_window)
 
     region_filter = None if selected_region == ALL_REGIONS else selected_region
     filtered = filter_featured_alerts(
@@ -119,57 +132,60 @@ def render() -> None:
         return
 
     anomaly_rows = scored[scored["is_anomaly"]]
-    st.metric("Anomaly Days", f"{len(anomaly_rows):,}")
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("Scored Daily Rows", f"{len(scored):,}")
+    metric_cols[1].metric("Anomaly Days", f"{len(anomaly_rows):,}")
+    metric_cols[2].metric("Threshold", f"{z_threshold:.1f}")
+    metric_cols[3].metric("Holiday Window", f"+/- {holiday_window_days} days")
 
-    st.subheader("Daily Activity and Anomaly Points")
-    st.plotly_chart(_activity_figure(scored), width="stretch")
+    section("Daily Activity and Anomaly Points", "Highlighted points meet the selected z-score threshold.")
+    st.plotly_chart(style_figure(_activity_figure(scored), height=460), width="stretch")
 
-    st.subheader("Top Anomalies")
+    section("Top Anomalies", "Highest-scoring days in the current filter selection.")
     top_table = top_anomalies(scored)
     if top_table.empty:
         st.info("No anomaly days were found with the current threshold.")
     else:
         st.dataframe(top_table, width="stretch", hide_index=True)
 
+    section("Holiday Context", "Counts below compare anomaly days by proximity window and nearest date marker.")
     left, right = st.columns(2)
     with left:
-        st.subheader("Holiday Window Split")
         comparison = holiday_window_comparison(scored)
         if comparison.empty:
             st.info("No anomaly days to compare.")
         else:
-            st.plotly_chart(
-                px.bar(
-                    comparison,
-                    x="holiday_window",
-                    y="anomaly_count",
-                    labels={
-                        "holiday_window": "Holiday window",
-                        "anomaly_count": "Anomaly days",
-                    },
-                ),
-                width="stretch",
+            figure = px.bar(
+                comparison,
+                x="holiday_window",
+                y="anomaly_count",
+                labels={
+                    "holiday_window": "Holiday window",
+                    "anomaly_count": "Anomaly days",
+                },
+                title="Inside vs Outside Holiday Window",
+                color_discrete_sequence=[PRIMARY_COLOR],
             )
+            st.plotly_chart(style_figure(figure, height=360), width="stretch")
 
     with right:
-        st.subheader("Nearest Holidays Among Anomalies")
         frequency = nearby_holiday_frequency(scored)
         if frequency.empty:
             st.info("No anomaly days to summarize.")
         else:
-            st.plotly_chart(
-                px.bar(
-                    frequency,
-                    x="anomaly_count",
-                    y="nearest_holiday_name",
-                    orientation="h",
-                    labels={
-                        "anomaly_count": "Anomaly days",
-                        "nearest_holiday_name": "Nearest holiday or date",
-                    },
-                ).update_layout(yaxis={"categoryorder": "total ascending"}),
-                width="stretch",
-            )
+            figure = px.bar(
+                frequency,
+                x="anomaly_count",
+                y="nearest_holiday_name",
+                orientation="h",
+                labels={
+                    "anomaly_count": "Anomaly days",
+                    "nearest_holiday_name": "Nearest holiday or date",
+                },
+                title="Most Frequent Nearby Dates",
+                color_discrete_sequence=[PRIMARY_COLOR],
+            ).update_layout(yaxis={"categoryorder": "total ascending"})
+            st.plotly_chart(style_figure(figure, height=360), width="stretch")
 
 
 def _region_selector(featured: pd.DataFrame) -> str:
@@ -189,7 +205,9 @@ def _activity_figure(scored: pd.DataFrame) -> go.Figure:
         x="date",
         y="alert_count",
         color="region",
+        title="Daily Alert Count with Anomaly Markers",
         labels={"alert_count": "Alerts", "date": "Date", "region": "Region"},
+        color_discrete_sequence=[PRIMARY_COLOR, "#6f4e37", "#8a3ffc", "#2f855a"],
     )
     anomaly_rows = scored[scored["is_anomaly"]]
     if not anomaly_rows.empty:
@@ -199,7 +217,7 @@ def _activity_figure(scored: pd.DataFrame) -> go.Figure:
                 y=anomaly_rows["alert_count"],
                 mode="markers",
                 name="Anomaly",
-                marker={"color": "#d7263d", "size": 9, "symbol": "diamond"},
+                marker={"color": ACCENT_COLOR, "size": 9, "symbol": "diamond"},
                 text=anomaly_rows["explanation"],
                 hovertemplate="%{text}<extra></extra>",
             )

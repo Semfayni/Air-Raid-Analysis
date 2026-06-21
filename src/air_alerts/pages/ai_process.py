@@ -2,56 +2,87 @@
 
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
+
+from air_alerts.ui import compact_note, page_header, section
 
 
 def render() -> None:
     """Render AI-assisted development process notes."""
-    st.title("AI Process")
-    st.caption("How the project was planned, tested, corrected, and kept exploratory.")
+    page_header(
+        "AI Process",
+        "Architecture reasoning, prompt-log support, and repair history for evaluation.",
+    )
 
-    st.warning(
+    compact_note(
         "This project supports exploratory analysis and visualization. It is not an "
-        "operational warning tool and does not attempt to predict attacks."
+        "operational warning tool and does not attempt to predict attacks.",
+        kind="warning",
     )
 
-    st.subheader("Data Boundary")
-    st.write(
-        "Historical analysis uses the public CSV dataset because it is reproducible, testable, "
-        "and appropriate for time-series exploration. The alerts.in.ua API is used only for "
-        "current live status, where freshness matters and an API token can be kept outside code."
-    )
+    top_left, top_right = st.columns(2)
+    with top_left:
+        st.subheader("Data Boundary")
+        st.write(
+            "Historical analysis uses the public CSV dataset because it is reproducible, "
+            "testable, and appropriate for time-series exploration. The alerts.in.ua API "
+            "is used only for current live status."
+        )
+    with top_right:
+        st.subheader("Exploratory Framing")
+        st.write(
+            "The anomaly lab compares daily activity with a rolling baseline. Holiday "
+            "proximity is context for inspection, not evidence that one event explains another."
+        )
 
-    st.subheader("Exploratory Framing")
-    st.write(
-        "The anomaly lab looks for unusual daily alert activity relative to a rolling baseline. "
-        "Holiday proximity is added as context for inspection, not as evidence that one event "
-        "explains another."
+    section("Pipeline")
+    pipeline = pd.DataFrame(
+        [
+            ("1", "Historical loading", "Validate CSV schema and parse UTC timestamps."),
+            ("2", "Kyiv-time features", "Add local calendar fields for daily analysis."),
+            ("3", "Holiday proximity", "Attach nearby public holidays and important dates."),
+            ("4", "Anomaly scoring", "Compare regional daily activity with a rolling baseline."),
+            ("5", "Live status", "Read compact alerts.in.ua oblast status through a token-safe client."),
+            ("6", "Dashboard", "Expose the workflow through Streamlit pages."),
+        ],
+        columns=["Step", "Stage", "Purpose"],
     )
+    st.dataframe(pipeline, width="stretch", hide_index=True)
 
-    st.subheader("Pipeline")
-    st.markdown(
-        "- Historical data loading: read official and volunteer CSV files, validate schema, and parse UTC timestamps.\n"
-        "- Kyiv timezone feature engineering: preserve UTC columns and add Kyiv-local calendar fields for daily analysis.\n"
-        "- Holiday proximity features: build Ukrainian public holiday and important-date calendars by year.\n"
-        "- Rolling anomaly detection: score daily region activity with count and duration against a rolling baseline.\n"
-        "- Live map status: read compact current oblast statuses from alerts.in.ua through a token-safe client.\n"
-        "- Streamlit dashboard: expose overview, regional explorer, live map, anomaly lab, and process notes."
+    section("AI Mistakes and Corrections")
+    repairs = pd.DataFrame(
+        [
+            (
+                "Duplicate Streamlit page paths",
+                "All page callables were named `render`, so Streamlit inferred duplicate routes.",
+                "App crashed on startup.",
+                "Added explicit `url_path` values for every page.",
+            ),
+            (
+                "Brittle datetime test",
+                "The test expected exact pandas nanosecond timestamp precision.",
+                "Local pandas returned another valid timezone-aware precision.",
+                "Changed the assertion to check datetime and UTC semantics.",
+            ),
+            (
+                "Missing region in anomalies",
+                "`groupby.apply` dropped `region` in the scored dataframe.",
+                "Tests failed when explanation text accessed `region`.",
+                "Replaced it with an explicit per-region scoring loop.",
+            ),
+            (
+                "Map missing-value handling",
+                "The map join expected optional `oblast_index` and left unmatched status as `NaN`.",
+                "Minimal-schema map tests failed.",
+                "Used missing status after join and normalized unmatched rows.",
+            ),
+        ],
+        columns=["Issue", "What went wrong", "How detected", "Correction"],
     )
+    st.dataframe(repairs, width="stretch", hide_index=True)
 
-    st.subheader("AI Mistakes and Corrections")
-    st.markdown(
-        "- Streamlit navigation initially generated duplicate page paths because each page callable was named `render`. "
-        "The crash exposed the issue, and explicit `url_path` values made every page route stable.\n"
-        "- A historical loader test expected exactly `datetime64[ns, UTC]`. Local pandas returned another valid precision, "
-        "so the test was changed to check timezone-aware UTC datetime behavior instead of a brittle string.\n"
-        "- The anomaly backend lost `region` after a pandas `groupby.apply` step. Failing tests found the missing column, "
-        "and the fix changed scoring to an explicit per-region loop that preserves the region value.\n"
-        "- The map layer assumed optional `oblast_index` existed, then represented unmatched GeoJSON rows with `NaN` "
-        "where `None` was expected. Tests drove a schema-tolerant join and explicit missing-value normalization."
-    )
-
-    st.subheader("Prompt Log")
+    section("Prompt Log")
     st.write(
         "The `prompts/` directory contains short stage summaries and placeholders where real prompts, outputs, "
         "or screenshots can be added for KSE submission. It is support material, not a full chat export."

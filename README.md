@@ -18,8 +18,20 @@ This project is for analysis and visualization only. It is not an attack predict
   - `official_data_en.csv`
   - `volunteer_data_en.csv`
 - Live status only: [alerts.in.ua API](https://devs.alerts.in.ua/)
+- Map geometry: [`EugeneBorshch/ukraine_geojson`](https://github.com/EugeneBorshch/ukraine_geojson)
 
 Historical analysis uses the CSV dataset for reproducibility. The alerts.in.ua API is used only for current live status and future live-map workflows.
+
+## Historical Data Files
+
+The repository intentionally includes a snapshot of:
+
+- `data/raw/official_data_en.csv`
+- `data/raw/volunteer_data_en.csv`
+
+These files are committed for evaluator convenience so the historical dashboard can run without a first-run download. The loader still checks `data/raw` first and can download the same files from the historical dataset repository if they are missing.
+
+The live map uses `data/geo/ukraine_oblasts.geojson` for oblast geometry. That GeoJSON was taken from `EugeneBorshch/ukraine_geojson` and is used here as map geometry for an educational prototype. If the file is removed or unavailable, the app falls back to a live status table.
 
 ## Safety Disclaimer
 
@@ -88,7 +100,7 @@ tests/                   Unit tests
 - Holiday proximity is context, not proof of a relationship.
 - Historical results depend on source dataset coverage and schema stability.
 - The live API requires a valid local token and network access.
-- The live map needs a GeoJSON file at `data/geo/ukraine_oblasts.geojson` for map geometry. Without it, the app shows a fallback status table.
+- The live map uses `data/geo/ukraine_oblasts.geojson` for map geometry. Without it, the app shows a fallback status table.
 
 ## AI-Assisted Development Process
 
